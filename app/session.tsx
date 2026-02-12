@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { View, Text, StyleSheet, Alert, BackHandler } from 'react-native';
 import { useRouter, useLocalSearchParams, useFocusEffect } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -11,12 +11,19 @@ import {
 import { StretchSessionItem, UserPreferences } from '@/types';
 import { useStretchSession } from '@/hooks/useStretchSession';
 import { loadPreferences, loadRoutines } from '@/utils/storage';
+import { getPresetRoutineById } from '@/utils/routinePresets';
+import { saveSessionRecord } from '@/utils/history';
 
 export default function SessionScreen() {
   const router = useRouter();
-  const params = useLocalSearchParams<{ items?: string; routineId?: string }>();
+  const params = useLocalSearchParams<{ 
+    items?: string; 
+    routineId?: string;
+    presetId?: string;
+  }>();
   
   const [sessionItems, setSessionItems] = useState<StretchSessionItem[]>([]);
+  const [routineName, setRoutineName] = useState('カスタムセッション');
   const [preferences, setPreferences] = useState<UserPreferences>({
     useSpeech: true,
     useVibration: true,
@@ -24,6 +31,8 @@ export default function SessionScreen() {
     speechLanguage: 'ja',
   });
   const [isLoading, setIsLoading] = useState(true);
+  const startTimeRef = useRef<number>(0);
+  const completedPosesRef = useRef<number>(0);
 
   useEffect(() => {
     const loadData = async () => {
@@ -34,11 +43,20 @@ export default function SessionScreen() {
         if (params.items) {
           const items = JSON.parse(params.items) as StretchSessionItem[];
           setSessionItems(items);
+          setRoutineName('カスタムセッション');
+        } else if (params.presetId) {
+          // Load preset routine
+          const preset = getPresetRoutineById(params.presetId);
+          if (preset) {
+            setSessionItems(preset.items);
+            setRoutineName(preset.name);
+          }
         } else if (params.routineId) {
           const routines = await loadRoutines();
           const routine = routines.find((r) => r.id === params.routineId);
           if (routine) {
             setSessionItems(routine.items);
+            setRoutineName(routine.name);
           }
         }
       } catch (error) {
@@ -50,17 +68,45 @@ export default function SessionScreen() {
       }
     };
     loadData();
-  }, [params.items, params.routineId]);
+  }, [params.items, params.routineId, params.presetId]);
 
-  const handleSessionComplete = useCallback(() => {
-    // Session completed
-  }, []);
+  const handleSessionComplete = useCallback(async () => {
+    // Save session to history
+    const endTime = Date.now();
+    const actualDuration = Math.round((endTime - startTimeRef.current) / 1000);
+    const totalDuration = sessionItems.reduce((sum, item) => sum + item.duration, 0);
+
+    try {
+      await saveSessionRecord({
+        routineName,
+        routineId: params.routineId || params.presetId,
+        totalPoses: sessionItems.length,
+        completedPoses: sessionItems.length, // All completed
+        totalDuration,
+        actualDuration,
+      });
+    } catch (error) {
+      console.error('Failed to save session record:', error);
+    }
+  }, [sessionItems, routineName, params.routineId, params.presetId]);
 
   const session = useStretchSession({
     items: sessionItems,
     preferences,
     onSessionComplete: handleSessionComplete,
   });
+
+  // Track session start
+  useEffect(() => {
+    if (session.isRunning && startTimeRef.current === 0) {
+      startTimeRef.current = Date.now();
+    }
+  }, [session.isRunning]);
+
+  // Track completed poses
+  useEffect(() => {
+    completedPosesRef.current = session.currentIndex;
+  }, [session.currentIndex]);
 
   // Handle back button
   useFocusEffect(
@@ -117,6 +163,12 @@ export default function SessionScreen() {
     }
   };
 
+  const handleRestart = () => {
+    startTimeRef.current = 0;
+    completedPosesRef.current = 0;
+    session.restart();
+  };
+
   if (isLoading) {
     return (
       <SafeAreaView style={styles.container} edges={['bottom']}>
@@ -153,10 +205,11 @@ export default function SessionScreen() {
           <Text style={styles.completeSubtitle}>
             {sessionItems.length}種目のストレッチを完了しました
           </Text>
+          <Text style={styles.routineNameComplete}>{routineName}</Text>
           <View style={styles.completeButtons}>
             <Button
               title="もう一度"
-              onPress={session.restart}
+              onPress={handleRestart}
               variant="outline"
               size="large"
               testID="restart-session-button"
@@ -176,6 +229,10 @@ export default function SessionScreen() {
 
   return (
     <SafeAreaView style={styles.container} edges={['bottom']}>
+      <View style={styles.header}>
+        <Text style={styles.routineName}>{routineName}</Text>
+      </View>
+
       <View style={styles.content}>
         <SessionProgress
           currentIndex={session.currentIndex}
@@ -270,6 +327,19 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#F5F5F5',
   },
+  header: {
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    backgroundColor: '#FFF',
+    borderBottomWidth: 1,
+    borderBottomColor: '#E0E0E0',
+  },
+  routineName: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#4CAF50',
+    textAlign: 'center',
+  },
   content: {
     flex: 1,
     justifyContent: 'space-between',
@@ -333,6 +403,11 @@ const styles = StyleSheet.create({
   completeSubtitle: {
     fontSize: 16,
     color: '#666',
+    marginBottom: 8,
+  },
+  routineNameComplete: {
+    fontSize: 14,
+    color: '#4CAF50',
     marginBottom: 32,
   },
   completeButtons: {
