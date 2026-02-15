@@ -7,7 +7,7 @@
     "icon": "./assets/icon.png",
     "scheme": "stretch-timer",
     "userInterfaceStyle": "automatic",
-    "newArchEnabled": true,
+    "newArchEnabled": false,
     "splash": {
       "image": "./assets/splash-icon.png",
       "resizeMode": "contain",
@@ -15,7 +15,8 @@
     },
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "jp.manyconnection.stretchtimer"
+      "bundleIdentifier": "jp.manyconnection.stretchtimer",
+      "buildNumber": "2"
     },
     "android": {
       "adaptiveIcon": {
@@ -34,6 +35,14 @@
     ],
     "experiments": {
       "typedRoutes": true
+    },
+    "extra": {
+      "router": {
+        "origin": false
+      },
+      "eas": {
+        "projectId": "32b8aa01-d1f0-499f-9bd9-e4e2ec0abce2"
+      }
     }
   }
 }
